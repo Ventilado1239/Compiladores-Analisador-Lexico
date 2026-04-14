@@ -1,0 +1,96 @@
+/*
+ * diagrama_afd.dot
+ * Diagrama do Automato Finito Deterministico (AFD) do analisador lexico
+ * da linguagem MicroPascal, no formato Graphviz DOT.
+ *
+ * Para gerar a imagem:
+ *   dot -Tpng diagrama_afd.dot -o diagrama_afd.png
+ *   dot -Tpdf diagrama_afd.dot -o diagrama_afd.pdf
+ *
+ * Download do Graphviz: https://graphviz.org/download/
+ */
+
+digraph AFD_MicroPascal {
+    rankdir=LR;
+    fontname="Arial";
+    node [fontname="Arial", fontsize=10];
+    edge [fontname="Arial", fontsize=9];
+
+    /* Estado inicial (seta de entrada) */
+    inicio [shape=point, width=0.15];
+
+    /* Estados de aceitacao (circulo duplo) */
+    q2   [shape=doublecircle, label="q2\nID/KW"];
+    q4   [shape=doublecircle, label="q4\nNUM_INT"];
+    q6   [shape=doublecircle, label="q6\nOP_ASS"];
+    q7   [shape=doublecircle, label="q7\nSMB_COL"];
+    q8   [shape=doublecircle, label="q8\nSMB_SEM"];
+    q9   [shape=doublecircle, label="q9\nEOF"];
+    q_maior_igual  [shape=doublecircle, label="qMI\nOP_GE"];
+    q_maior_aceita [shape=doublecircle, label="qMA\nOP_GT"];
+    q_menor_igual  [shape=doublecircle, label="qmI\nOP_LE"];
+    q_menor_difr   [shape=doublecircle, label="qmD\nOP_NE"];
+    q_menor_aceita [shape=doublecircle, label="qmA\nOP_LT"];
+    q_real_aceita  [shape=doublecircle, label="qRA\nNUM_REAL"];
+    q_single       [shape=doublecircle, label="qS\n+ - * / =\n. , ( )"];
+    q_err          [shape=doublecircle, label="qERR\nERRO", color=red, fontcolor=red];
+
+    /* Estados intermediarios (circulo simples) */
+    q0  [shape=circle, label="q0\nInicial"];
+    q1  [shape=circle, label="q1\nLendo ID"];
+    q3  [shape=circle, label="q3\nLendo INT"];
+    q5  [shape=circle, label="q5\nLeu ':'"];
+    q_maior      [shape=circle, label="qM\nLeu '>'"];
+    q_menor      [shape=circle, label="qm\nLeu '<'"];
+    q_real_ponto [shape=circle, label="qRP\nLeu '.'"];
+
+    /* Transicoes */
+    inicio -> q0;
+
+    /* q0: ignorar espacos e comentarios */
+    q0 -> q0 [label="' ' / \\t / \\r"];
+    q0 -> q0 [label="\\n"];
+    q0 -> q0 [label="{ ... }"];
+
+    /* q0 -> identificadores */
+    q0 -> q1 [label="letra"];
+    q1 -> q1 [label="letra/dígito"];
+    q1 -> q2 [label="outro\n(ungetc)"];
+
+    /* q0 -> numeros */
+    q0 -> q3 [label="dígito"];
+    q3 -> q3 [label="dígito"];
+    q3 -> q4 [label="outro\n(ungetc)"];
+    q3 -> q_real_ponto [label="'.'"];
+    q_real_ponto -> q_real_aceita [label="dígito"];
+    q_real_ponto -> q_err [label="outro\n(ERR_REAL)"];
+    q_real_aceita -> q_real_aceita [label="dígito"];
+
+    /* q0 -> dois-pontos e atribuicao */
+    q0 -> q5 [label="':'"];
+    q5 -> q6 [label="'='"];
+    q5 -> q7 [label="outro\n(ungetc)"];
+
+    /* q0 -> ponto-e-virgula */
+    q0 -> q8 [label="';'"];
+
+    /* q0 -> operadores relacionais (maior) */
+    q0 -> q_maior [label="'>'"];
+    q_maior -> q_maior_igual [label="'='"];
+    q_maior -> q_maior_aceita [label="outro\n(ungetc)"];
+
+    /* q0 -> operadores relacionais (menor) */
+    q0 -> q_menor [label="'<'"];
+    q_menor -> q_menor_igual [label="'='"];
+    q_menor -> q_menor_difr [label="'>'"];
+    q_menor -> q_menor_aceita [label="outro\n(ungetc)"];
+
+    /* q0 -> simbolos e operadores de caractere unico */
+    q0 -> q_single [label="+ - * / = . , ( )"];
+
+    /* q0 -> EOF */
+    q0 -> q9 [label="EOF"];
+
+    /* q0 -> Erro: comentario nao fechado ou caractere invalido */
+    q0 -> q_err [label="@ $ % ...\n(invalido)", color=red];
+}

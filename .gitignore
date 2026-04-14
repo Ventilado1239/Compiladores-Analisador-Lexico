@@ -1,0 +1,8 @@
+*.exe
+*.o
+*.lex
+*.ts
+*.err
+*~
+.vscode/
+output/

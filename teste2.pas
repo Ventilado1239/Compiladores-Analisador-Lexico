@@ -1,0 +1,4 @@
+begin
+  if x >= 10 then
+    x := x + 1;
+end

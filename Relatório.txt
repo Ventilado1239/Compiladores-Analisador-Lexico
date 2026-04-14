@@ -1,0 +1,412 @@
+================================================================================
+    RELATÓRIO TÉCNICO — ANALISADOR LÉXICO MICROPASCAL (µ-Pascal)
+================================================================================
+
+    Universidade Católica de Brasília
+    Linguagens Formais, Autômatos e Compiladores — 1º semestre de 2026
+    Professor: MARCELO EUSTÁQUIO
+
+================================================================================
+1. INTRODUÇÃO
+================================================================================
+
+Este relatório descreve a implementação de um analisador léxico para a linguagem
+MicroPascal (µ-Pascal). O analisador foi implementado em linguagem C, sem o uso
+de ferramentas de geração automática, utilizando um Autômato Finito
+Determinístico (AFD) como base para o reconhecimento de tokens.
+
+O analisador léxico é capaz de:
+  - Reconhecer todos os tokens da linguagem MicroPascal
+  - Identificar e reportar erros léxicos com linha e coluna
+  - Manter uma Tabela de Símbolos (TS) com palavras reservadas e identificadores
+  - Gerar arquivos de saída .lex, .ts e .err
+
+================================================================================
+2. ESTRUTURAS DE DADOS
+================================================================================
+
+2.1. Token (token.h)
+---------------------
+Estrutura que representa um token reconhecido pelo analisador:
+
+    typedef struct {
+        char tipo[30];     // Nome do token (ex: KW_PROGRAM, ID, OP_ASS)
+        char lexema[100];  // Sequência de caracteres reconhecida
+        int linha;         // Linha onde o token foi encontrado
+        int coluna;        // Coluna onde o token inicia
+    } Token;
+
+2.2. EntradaTS (ts.h)
+---------------------
+Estrutura que representa uma entrada na Tabela de Símbolos:
+
+    typedef struct {
+        char lexema[100];  // Lexema armazenado (em minúsculo)
+        char tipo[30];     // Tipo do token (ex: KW_PROGRAM, ID)
+    } EntradaTS;
+
+A Tabela de Símbolos é implementada como um vetor estático de EntradaTS com
+capacidade máxima de 1000 entradas (MAX_TS). A busca é linear e
+case-insensitive.
+
+2.3. ErroLexico (main.c)
+-------------------------
+Estrutura para armazenamento temporário de erros léxicos:
+
+    typedef struct {
+        char tipo[30];     // Tipo do erro (ex: ERR_CHAR_INVALIDO)
+        char lexema[100];  // Caractere ou lexema que causou o erro
+        int linha;         // Linha do erro
+        int coluna;        // Coluna do erro
+    } ErroLexico;
+
+2.4. Estado (scanner.c)
+-----------------------
+Enumeração dos estados do AFD:
+
+    typedef enum {
+        q0,              // Estado inicial
+        q1,              // Lendo identificador/palavra reservada
+        q2,              // Aceitação de ID ou KW
+        q3,              // Lendo número inteiro
+        q4,              // Aceitação de NUM_INT
+        q5,              // Leu ':'
+        q6,              // Aceitação de OP_ASS (:=)
+        q7,              // Aceitação de SMB_COL (:)
+        q8,              // Aceitação de SMB_SEM (;)
+        q9,              // Fim de arquivo
+        q_err,           // Erro léxico
+        q_maior,         // Leu '>'
+        q_maior_igual,   // Aceitação de OP_GE (>=)
+        q_maior_aceita,  // Aceitação de OP_GT (>)
+        q_menor,         // Leu '<'
+        q_menor_igual,   // Aceitação de OP_LE (<=)
+        q_menor_difr,    // Aceitação de OP_NE (<>)
+        q_menor_aceita,  // Aceitação de OP_LT (<)
+        q_real_ponto,    // Ponto decimal lido
+        q_real_aceita    // Aceitação de NUM_REAL
+    } Estado;
+
+================================================================================
+3. DESCRIÇÃO DAS FUNÇÕES IMPLEMENTADAS
+================================================================================
+
+3.1. Tabela de Símbolos (ts.c)
+-------------------------------
+
+  inicializarTS()
+    Pré-carrega as 11 palavras reservadas da linguagem (program, var, integer,
+    real, begin, end, if, then, else, while, do) na tabela com seus respectivos
+    tokens KW_*.
+
+  buscarTS(lexema)
+    Busca um lexema na tabela usando comparação case-insensitive. Retorna o
+    índice da entrada encontrada ou -1 se não existir. Utiliza função auxiliar
+    strcasecmp_local() para portabilidade.
+
+  inserirTS(lexema, tipo)
+    Insere um novo lexema na tabela somente se ainda não existir (evita
+    duplicação). Retorna o índice da entrada.
+
+  obterTipoTS(indice)
+    Retorna o tipo de token de uma entrada dado seu índice na tabela.
+
+  imprimirTS()
+    Imprime a tabela completa no console com formatação tabular.
+
+  gravarTS(arq)
+    Grava a tabela completa em um arquivo .ts com formatação tabular.
+
+3.2. Scanner (scanner.c)
+-------------------------
+
+  initScanner(fonte)
+    Inicializa o scanner com o ponteiro do arquivo-fonte. Reseta contadores
+    de linha e coluna.
+
+  lerCaractere()
+    Função auxiliar que lê o próximo caractere do arquivo e incrementa a
+    coluna. Encapsula fgetc().
+
+  devolverCaractere(c)
+    Função auxiliar que devolve um caractere ao fluxo (ungetc) e decrementa
+    a coluna. Usada para o mecanismo de lookahead do AFD.
+
+  classificaIdentificador(lexema, tipo)
+    Consulta a Tabela de Símbolos para determinar se o lexema é uma palavra
+    reservada (já pré-carregada) ou um identificador novo. Se for novo,
+    insere automaticamente na TS como "ID".
+
+  proximoToken()
+    Função principal do analisador léxico. Implementa o AFD completo com
+    switch/case sobre os estados. A cada chamada, retorna o próximo token
+    reconhecido. Quando o arquivo termina, retorna um token com tipo vazio.
+
+3.3. Programa Principal (main.c)
+---------------------------------
+
+  extrairNomeBase(caminho, base)
+    Extrai o nome do arquivo sem extensão para gerar os nomes dos arquivos
+    de saída (.lex, .ts, .err).
+
+  ehErro(tipo)
+    Verifica se um tipo de token é um erro léxico (prefixo "ERR_").
+
+  main(argc, argv)
+    Função principal que:
+    1. Recebe o nome do arquivo-fonte como argumento (ou usa "teste.pas")
+    2. Inicializa a TS com palavras reservadas
+    3. Inicializa o scanner com o arquivo-fonte
+    4. Loop: chama proximoToken() até EOF
+       - Tokens válidos são escritos no .lex
+       - Erros são armazenados e exibidos no console
+    5. Grava a TS no .ts
+    6. Grava os erros no .err
+    7. Imprime resumo no console
+
+================================================================================
+4. EXPLICAÇÃO DO AFD
+================================================================================
+
+O Autômato Finito Determinístico (AFD) implementado possui 20 estados e
+reconhece todos os tokens da linguagem MicroPascal.
+
+Estado Inicial (q0):
+  - Ignora espaços em branco (' ', '\t', '\r')
+  - Ignora quebras de linha ('\n'), incrementando o contador de linhas
+  - Ignora comentários delimitados por { e }
+  - Despacha para o estado apropriado conforme o caractere lido
+
+Identificadores e Palavras Reservadas (q0 → q1 → q2):
+  - q0 transita para q1 ao ler uma letra (isalpha)
+  - q1 consome letras e dígitos (isalnum), convertendo para minúsculo
+  - q1 transita para q2 ao ler caractere não-alfanumérico
+  - q2 devolve o último caractere (ungetc) e consulta a TS para classificar
+
+Números Inteiros (q0 → q3 → q4):
+  - q0 transita para q3 ao ler um dígito (isdigit)
+  - q3 consome dígitos consecutivos
+  - q3 transita para q4 ao ler caractere não-dígito (aceita NUM_INT)
+
+Números Reais (q3 → q_real_ponto → q_real_aceita):
+  - q3 transita via '.' verificando se há dígito após o ponto
+  - Se há dígito: consome como NUM_REAL
+  - Se não há dígito: devolve o '.' e aceita como NUM_INT
+
+Atribuição e Dois-Pontos (q0 → q5 → q6/q7):
+  - q0 transita para q5 ao ler ':'
+  - q5 → q6 se próximo é '=' (OP_ASS)
+  - q5 → q7 se outro (SMB_COL, com ungetc)
+
+Operadores Relacionais de Maior (q0 → q_maior → q_maior_igual/q_maior_aceita):
+  - q_maior verifica se próximo é '=' para OP_GE, senão OP_GT
+
+Operadores Relacionais de Menor (q0 → q_menor → q_menor_igual/q_menor_difr/q_menor_aceita):
+  - q_menor verifica '=' para OP_LE, '>' para OP_NE, senão OP_LT
+
+Símbolos de Caractere Único:
+  - Reconhecidos diretamente em q0: + - * / = . , ( )
+  - Tratados via switch/case sem mudança de estado intermediária
+
+Erros Léxicos:
+  - Caractere inválido: caractere não pertence à linguagem (ERR_CHAR_INVALIDO)
+  - Comentário não fechado: '{' sem '}' até EOF (ERR_CMT_NAO_FECHADO)
+
+O diagrama visual completo do AFD encontra-se no arquivo diagrama_afd.dot
+(formato Graphviz) e diagrama_afd.md (formato Mermaid).
+
+================================================================================
+5. TESTES REALIZADOS
+================================================================================
+
+5.1. Teste Correto 1 (teste_correto1.pas) — Programa Exemplo da Especificação
+-------------------------------------------------------------------------------
+
+Entrada:
+    program Exemplo;
+    var
+        x, y : integer;
+        z : real;
+    begin
+        x := 10;
+        y := 20;
+        z := x + y * 2.5;
+        if x > y then
+            x := x - 1
+        else
+            y := y + 1;
+        while z <= 100 do
+        begin
+            z := z * 1.5;
+            x := x + 2
+        end
+    end.
+
+Resultado: 68 tokens reconhecidos, 0 erros léxicos.
+
+Primeiros tokens da saída (.lex):
+    <KW_PROGRAM, program> 1 1
+    <ID, exemplo> 1 9
+    <SMB_SEM, ;> 1 16
+    <KW_VAR, var> 2 1
+    <ID, x> 3 5
+    <SMB_COM, ,> 3 6
+    <ID, y> 3 8
+    <SMB_COL, :> 3 10
+    <KW_INTEGER, integer> 3 12
+    ...
+
+Tabela de Símbolos final:
+    0  program   KW_PROGRAM
+    1  var       KW_VAR
+    2  integer   KW_INTEGER
+    3  real      KW_REAL
+    4  begin     KW_BEGIN
+    5  end       KW_END
+    6  if        KW_IF
+    7  then      KW_THEN
+    8  else      KW_ELSE
+    9  while     KW_WHILE
+    10 do        KW_DO
+    11 exemplo   ID
+    12 x         ID
+    13 y         ID
+    14 z         ID
+
+5.2. Teste Correto 2 (teste_correto2.pas) — Todos os Operadores
+----------------------------------------------------------------
+
+Programa com comentário, todos os operadores relacionais (=, <>, <, <=, >, >=)
+e aritméticos (+, -, *, /), além de números reais.
+
+Resultado: 98 tokens reconhecidos, 0 erros léxicos.
+
+5.3. Teste Correto 3 (teste_correto3.pas) — Case-Insensitivity
+---------------------------------------------------------------
+
+Programa com palavras reservadas em maiúsculo (PROGRAM, VAR, INTEGER, BEGIN,
+etc.) e identificadores em CamelCase (Valor, TOTAL, Media).
+
+Resultado: 64 tokens reconhecidos, 0 erros léxicos.
+Todas as palavras reservadas foram corretamente reconhecidas independente
+da capitalização. Identificadores foram normalizados para minúsculo.
+
+5.4. Teste com Erro 1 (teste_erro1.pas) — Caracteres Inválidos
+---------------------------------------------------------------
+
+Entrada:
+    program Teste;
+    var
+        x : integer;
+    begin
+        x := 10 @ 2;
+        x := x $ 5;
+        x := x % 3
+    end.
+
+Resultado: 25 tokens reconhecidos, 3 erros léxicos.
+
+Erros detectados:
+    ERR_CHAR_INVALIDO    @    linha 5   coluna 13
+    ERR_CHAR_INVALIDO    $    linha 6   coluna 12
+    ERR_CHAR_INVALIDO    %    linha 7   coluna 12
+
+5.5. Teste com Erro 2 (teste_erro2.pas) — Comentário Não Fechado
+-----------------------------------------------------------------
+
+Entrada:
+    program Teste;
+    var
+        x : integer;
+    begin
+        { este comentario nao fecha
+        x := 10;
+    end.
+
+Resultado: 9 tokens reconhecidos, 1 erro léxico.
+
+Erros detectados:
+    ERR_CMT_NAO_FECHADO  {    linha 5   coluna 5
+
+O analisador detectou que o comentário aberto com '{' na linha 5 nunca
+foi fechado com '}' antes do fim do arquivo.
+
+5.6. Teste com Erro 3 (teste_erro3.pas) — Caracteres Inválidos (#, &)
+----------------------------------------------------------------------
+
+Entrada:
+    program Teste;
+    var
+        x : integer;
+    begin
+        x := 42;
+        x := x + 1;
+        x := x # 3;
+        x := x & 2
+    end.
+
+Resultado: 30 tokens reconhecidos, 2 erros léxicos.
+
+Erros detectados:
+    ERR_CHAR_INVALIDO    #    linha 7   coluna 12
+    ERR_CHAR_INVALIDO    &    linha 8   coluna 12
+
+================================================================================
+6. FORMATO DE SAÍDA
+================================================================================
+
+6.1. Arquivo .lex
+-----------------
+Formato: <nome_token, lexema> linha coluna
+
+Exemplo:
+    <KW_PROGRAM, program> 1 1
+    <ID, exemplo> 1 9
+    <SMB_SEM, ;> 1 16
+
+6.2. Arquivo .ts
+----------------
+Formato tabular com índice, lexema e tipo de token.
+
+6.3. Arquivo .err
+-----------------
+Formato tabular com tipo do erro, lexema, linha e coluna.
+Quando não há erros: "Nenhum erro lexico encontrado."
+
+================================================================================
+7. INSTRUÇÕES DE COMPILAÇÃO E EXECUÇÃO
+================================================================================
+
+Compilação:
+    gcc -o lexico.exe main.c scanner.c ts.c
+
+Execução:
+    lexico.exe <arquivo.pas>         (com argumento)
+    lexico.exe                       (usa teste.pas como padrão)
+
+O programa gera automaticamente os três arquivos de saída:
+    <nome>.lex    - tokens reconhecidos
+    <nome>.ts     - tabela de símbolos
+    <nome>.err    - erros léxicos
+
+================================================================================
+8. ARQUIVOS DO PROJETO
+================================================================================
+
+    token.h             - Definição da estrutura Token
+    ts.h                - Interface da Tabela de Símbolos  
+    ts.c                - Implementação da Tabela de Símbolos
+    scanner.h           - Interface do scanner (analisador léxico)
+    scanner.c           - Implementação do scanner com AFD
+    main.c              - Programa principal
+    diagrama_afd.dot    - Diagrama do AFD (Graphviz)
+    diagrama_afd.md     - Diagrama do AFD (Mermaid) com documentação
+    teste_correto1.pas  - Teste correto 1 (programa exemplo da especificação)
+    teste_correto2.pas  - Teste correto 2 (todos os operadores)
+    teste_correto3.pas  - Teste correto 3 (case-insensitivity)
+    teste_erro1.pas     - Teste com erro 1 (caracteres inválidos @, $, %)
+    teste_erro2.pas     - Teste com erro 2 (comentário não fechado)
+    teste_erro3.pas     - Teste com erro 3 (caracteres inválidos #, &)
+    Relatório.txt       - Este relatório técnico
+
+================================================================================
